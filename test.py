@@ -1,13 +1,20 @@
-import serial 
-import time 
-arduino = serial.Serial(port='/dev/ttyUSB0', baudrate=115200, timeout=.1) 
-def write_read(x): 
-	   arduino.write(bytes(x, 'utf-8')) 
-	   time.sleep(0.05) 
-	   data = arduino.readline() 
-	   return data 
-while True: 
-	   num = input("Enter a number: ") # Taking input from user 
-	   value = write_read(num) 
-	   print(value) # printing the value 
+self._running = True
+	
+def terminate(self): 
+	self._running = False
+	
+def run(self, n): 
+	while self._running and n > 0: 
+		print('T-minus', n) 
+		n -= 1
+		time.sleep(5) 
 
+c = CountdownTask() 
+t = Thread(target = c.run, args =(10, )) 
+t.start() 
+... 
+# Signal termination 
+c.terminate() 
+
+# Wait for actual termination (if needed) 
+t.join() 

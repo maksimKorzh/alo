@@ -1,176 +1,208 @@
+###################################
+#
+#  Arduino Light Organ (frontend)
+#
+###################################
+
+# Packages
+import serial.tools.list_ports
 import tkinter as tk
 from tkinter import ttk
+from tkinter import messagebox
+import serial
+import threading
 import pyaudio
 import numpy as np
 import os, time
 import serial
 
-class SerialPortApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Serial Port App")
+# Thread state
+visled_thread = None
+visled_running = False
 
-        # Default values
-        self.default_values = {
-            "serial_port": "/dev/ttyUSB0",
-            "device_index": "15",
-            "rate": "44100",
-            "channels": "2",
-            "min_frequency": "200",
-            "max_frequency": "2000",
-        }
+###################################
+#
+#       GUI control module
+#
+###################################
 
-        # Variables to store user inputs
-        self.serial_port_var = tk.StringVar(value=self.default_values["serial_port"])
-        self.device_index_var = tk.StringVar(value=self.default_values["device_index"])
-        self.rate_var = tk.StringVar(value=self.default_values["rate"])
-        self.channels_var = tk.StringVar(value=self.default_values["channels"])
-        self.min_frequency_var = tk.StringVar(value=self.default_values["min_frequency"])
-        self.max_frequency_var = tk.StringVar(value=self.default_values["max_frequency"])
-        self.output_var = tk.StringVar(value="Normal")
-        self.mode_var = tk.StringVar(value="Dominant Frequency")
+# List COM ports
+def get_available_ports():
+  available_ports = []
+  for port in serial.tools.list_ports.comports():
+    available_ports.append(port.device)
+  return available_ports
 
-        # Create UI elements
-        serial_port_label = ttk.Label(root, text="Serial Port:")
-        serial_port_label.grid(row=0, column=0, padx=5, pady=5)
-        self.serial_port_entry = ttk.Entry(root, textvariable=self.serial_port_var)
-        self.serial_port_entry.grid(row=0, column=1, padx=5, pady=5)
+# Refresh ports
+def update_ports():
+  com_ports = get_available_ports()
+  com_ports = com_ports if len(com_ports) else ['No device found']
+  com_port_option['values'] = com_ports
+  selected_port.set(com_ports[0])
 
-        device_index_label = ttk.Label(root, text="Device Index:")
-        device_index_label.grid(row=1, column=0, padx=5, pady=5)
-        self.device_index_entry = ttk.Entry(root, textvariable=self.device_index_var)
-        self.device_index_entry.grid(row=1, column=1, padx=5, pady=5)
+# Execute visled in background
+def start():
+  global visled_thread, visled_running
+  visled_running = True
+  visled_thread = threading.Thread(target=visled)
+  visled_thread.start()
 
-        rate_label = ttk.Label(root, text="Rate:")
-        rate_label.grid(row=2, column=0, padx=5, pady=5)
-        self.rate_entry = ttk.Entry(root, textvariable=self.rate_var)
-        self.rate_entry.grid(row=2, column=1, padx=5, pady=5)
+# Stop visled execution
+def stop():
+  global visled_thread, visled_running
+  visled_running = False
+  status_label['text'] = 'Not running'
+  if visled_thread and visled_thread.is_alive():
+    visled_thread.join()
+    status_label['text'] = 'Not running'
 
-        channels_label = ttk.Label(root, text="Channels:")
-        channels_label.grid(row=3, column=0, padx=5, pady=5)
-        self.channels_entry = ttk.Entry(root, textvariable=self.channels_var)
-        self.channels_entry.grid(row=3, column=1, padx=5, pady=5)
+def list_audio_devices():
+  p = pyaudio.PyAudio()
+  num_devices = p.get_device_count()
+  devices = []
+  for index in range(num_devices):
+      device_info = p.get_device_info_by_index(index)
+      devices.append({
+        'index': device_info['index'],
+        'name': device_info['name']
+      })
 
-        min_frequency_label = ttk.Label(root, text="Min Frequency:")
-        min_frequency_label.grid(row=4, column=0, padx=5, pady=5)
-        self.min_frequency_combobox = ttk.Combobox(root, values=list(range(200, 2001, 100)), textvariable=self.min_frequency_var, state="readonly")
-        self.min_frequency_combobox.grid(row=4, column=1, padx=5, pady=5)
+  p.terminate()
+  return devices
 
-        max_frequency_label = ttk.Label(root, text="Max Frequency:")
-        max_frequency_label.grid(row=5, column=0, padx=5, pady=5)
-        self.max_frequency_combobox = ttk.Combobox(root, values=list(range(200, 2001, 100)), textvariable=self.max_frequency_var, state="readonly")
-        self.max_frequency_combobox.grid(row=5, column=1, padx=5, pady=5)
+###################################
+#
+#    Visual LED control module
+#
+###################################
 
-        output_label = ttk.Label(root, text="Output:")
-        output_label.grid(row=6, column=0, padx=5, pady=5)
-        self.output_combobox = ttk.Combobox(root, values=["Normal", "Inverted"], textvariable=self.output_var, state="readonly")
-        self.output_combobox.grid(row=6, column=1, padx=5, pady=5)
+# Function to find the dominant frequency
+def dominant_frequency(data):
+  fft_data = np.fft.fft(data)
+  power_spectrum = np.abs(fft_data)
+  freqs = np.fft.fftfreq(len(data), 1.0/48000)
+  dominant_index = np.argmax(power_spectrum[1:]) + 1  # Exclude DC component
+  dominant_freq = freqs[dominant_index]
+  return dominant_freq
 
-        mode_label = ttk.Label(root, text="Mode:")
-        mode_label.grid(row=7, column=0, padx=5, pady=5)
-        self.mode_combobox = ttk.Combobox(root, values=["Dominant Frequency", "Threshold"], textvariable=self.mode_var, state="readonly")
-        self.mode_combobox.grid(row=7, column=1, padx=5, pady=5)
+# Function to map frequency to lamp index
+def map_frequency_to_lamp(frequency, num_lamps):
+  min_freq = 500
+  max_freq = 2000
+  freq_range = max_freq - min_freq
+  normalized_freq = (frequency - min_freq) / freq_range
+  mapped_index = int(normalized_freq * num_lamps)
+  return min(mapped_index, num_lamps - 1)
 
-        start_button = ttk.Button(root, text="Start", command=self.start)
-        start_button.grid(row=8, column=0, padx=5, pady=5)
 
-        stop_button = ttk.Button(root, text="Stop", command=self.stop)
-        stop_button.grid(row=8, column=1, padx=5, pady=5)
+# Light organ logic
+def visled():
+  global visled_running
+  
+  # Start serial communication
+  try:
+    arduino = serial.Serial(port=selected_port.get(), baudrate=115200, timeout=.1)
+    status_label['text'] = 'Connecting to serial port...'
+  except:
+    messagebox.showerror('Error', 'Port ' + selected_port.get() + ' does not exist!')
+    status_label['text'] = 'Not running'
+    return
+  try:
+    device = [d for d in list_audio_devices() if d['name'] == selected_device.get()][0]
+    status_label['text'] = 'Loading audio device...'
+  except:
+    messagebox.showerror('Error', 'Audio device does not exist!')
+    status_label['text'] = 'Not running'
+    return
 
-    def start(self):
-        # Gather all parameters
-        output = self.output_var.get()
-        mode = self.mode_var.get()
+  # Wait for serial connection to start
+  time.sleep(3)
+  
+  # Listen to audio stream
+  try:
+    # Initialize audio stream
+    audio = pyaudio.PyAudio()
+    stream = audio.open(
+      format=pyaudio.paInt16,
+      channels=2,
+      rate=48000,
+      input=True,
+      input_device_index=device['index'],
+      frames_per_buffer=1024
+    )
 
-        arduino = serial.Serial(port=self.serial_port_var.get(), baudrate=115200, timeout=.1) 
-        time.sleep(3)
+    status_label['text'] = 'Listening to input stream...'
+    while visled_running:
+      data = np.frombuffer(stream.read(1024), dtype=np.int16)
+      frequency = dominant_frequency(data)
+      lamp_index = map_frequency_to_lamp(frequency, 8)
+      
+      # Light up lamps
+      for i in range(8):
+        if i == lamp_index:
+          pin = bytes('abcdefgh'[i], 'utf-8')
+          arduino.write(pin) 
+        else:
+          pin = bytes('ABCDEFGH'[i], 'utf-8')
+          arduino.write(pin) 
+      pin = bytes(b'H')
+      arduino.write(pin) 
 
-        # Function to find the dominant frequency
-        def dominant_frequency(data):
-            # Perform FFT and get the power spectrum
-            fft_data = np.fft.fft(data)
-            power_spectrum = np.abs(fft_data)
+  except Exception as e:
+    messagebox.showerror('Error', 'Failed reading audio stream!\n' + str(e))
+    status_label['text'] = 'Not running'
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+    arduino.close()
 
-            # Find the dominant frequency bin
-            freqs = np.fft.fftfreq(len(data), 1.0/int(self.rate_var.get()))
-            dominant_index = np.argmax(power_spectrum[1:]) + 1  # Exclude DC component
-            dominant_freq = freqs[dominant_index]
+  finally:
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+    arduino.close()
 
-            return dominant_freq
+####################################
+#
+#              Main
+#
+###################################
 
-        # Function to map frequency to lamp index
-        def map_frequency_to_lamp(frequency, num_lamps):
-            min_freq = int(self.min_frequency_var.get())
-            max_freq = int(self.max_frequency_var.get())
-            freq_range = max_freq - min_freq
-            normalized_freq = (frequency - min_freq) / freq_range
-            mapped_index = int(normalized_freq * num_lamps)
-            return min(mapped_index, num_lamps - 1)
+# Create UI
+root = tk.Tk()
+root.title('Serial Communication App')
 
-        # Initialize audio stream
-        audio = pyaudio.PyAudio()
-        stream = audio.open(
-          format=pyaudio.paInt16,
-          channels=int(self.channels_var.get()),
-          rate=int(self.rate_var.get()),
-          input=True,
-          input_device_index=int(self.device_index_var.get()),
-          frames_per_buffer=1024
-        )
+# List serial port
+com_port_label = ttk.Label(root, text='Port:')
+com_port_label.grid(row=0, column=0, padx=5, pady=5)
+selected_port = tk.StringVar()
+com_ports = get_available_ports()
+com_ports = com_ports if len(com_ports) else ['No device found']
+com_port_option = ttk.Combobox(root, textvariable=selected_port, values=get_available_ports())
+com_port_option.grid(row=0, column=1, padx=5, pady=5)
+selected_port.set(com_ports[0])
+update_button = tk.Button(root, text="  Update ", command=update_ports)
+update_button.grid(row=0, column=2, padx=5, pady=5)
 
-        try:
-            print("Listening... (Press Ctrl+C to exit)")
-            while True:
-                data = np.frombuffer(stream.read(1024), dtype=np.int16)
-                frequency = dominant_frequency(data)
-                lamp_index = map_frequency_to_lamp(frequency, 8)
+# List audio devices
+audio_devices = [d['name'] for d in list_audio_devices()]
+selected_device = tk.StringVar()
+audio_option = ttk.Combobox(root, textvariable=selected_device, values=audio_devices)
+selected_device.set('default')
+audio_option.grid(row=1, column=1, padx=5, pady=5)
 
-                # Clear the terminal
-                #os.system('clear')
+# Start button
+start_button = ttk.Button(root, text='Start', command=start)
+start_button.grid(row=9, column=0, padx=5, pady=5)
 
-                # Print the lamps
-                for i in range(8):
-                    if i == lamp_index:
-                        pin = bytes('abcdefgh'[i], 'utf-8')
-                        arduino.write(pin)
-                    else:
-                        pin = bytes('ABCDEFGH'[i], 'utf-8')
-                        arduino.write(pin)
-                pin = bytes(b'H')
-                arduino.write(pin)
+# Status label
+status_label = ttk.Label(root, text='Port:')
+status_label.grid(row=9, column=1, padx=5, pady=5)
+status_label['text'] = 'Not running'
 
-        except KeyboardInterrupt:
-           print("Exiting...")
+# Stop button
+stop_button = ttk.Button(root, text='Stop', command=stop)
+stop_button.grid(row=9, column=2, padx=5, pady=5)
 
-        finally:
-           # Close audio stream
-           stream.stop_stream()
-           stream.close()
-           audio.terminate()
-
-           # Close the serial port
-           arduino.close()
-
-    def stop(self):
-        print("Stopping...")
-
-    def scan_audio_devices(self):
-        p = pyaudio.PyAudio()
-        num_devices = p.get_device_count()
-        audio_devices = []
-
-        for index in range(num_devices):
-            device_info = p.get_device_info_by_index(index)
-            device_name = device_info["name"]
-            print(device_name)
-        
-        p.terminate()
-
-def main():
-    root = tk.Tk()
-    app = SerialPortApp(root)
-    app.scan_audio_devices()
-    root.mainloop()
-
-if __name__ == "__main__":
-    main()
+# Run app
+root.mainloop()
