@@ -76,7 +76,7 @@ def list_audio_devices():
 #
 ###################################
 
-# Function to find the dominant frequency
+# Find the dominant frequency
 def dominant_frequency(data):
   fft_data = np.fft.fft(data)
   power_spectrum = np.abs(fft_data)
@@ -85,12 +85,19 @@ def dominant_frequency(data):
   dominant_freq = freqs[dominant_index]
   return dominant_freq
 
-# Function to map frequency to lamp index
+# Map frequency to lamp index
 def map_frequency_to_lamp(frequency, num_lamps, min_freq, max_freq):
   freq_range = max_freq - min_freq
   normalized_freq = (frequency - min_freq) / freq_range
   mapped_index = int(normalized_freq * num_lamps)
   return min(mapped_index, num_lamps - 1)
+
+# Get amplitude of given frequency
+def get_amplitude(data, freq):
+  fft_data = np.fft.fft(data)
+  freqs = np.fft.fftfreq(len(fft_data), 1/48000)
+  idx = np.argmin(np.abs(freqs - freq))
+  return np.abs(fft_data[idx])
 
 # Light organ logic
 def visled():
@@ -137,13 +144,20 @@ def visled():
       lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
       
       # Light up lamps
+      #for i in range(8):
+      #  if i == lamp_index:
+      #    pin = bytes('abcdefgh'[i], 'utf-8')
+      #    arduino.write(pin) 
+      #  else:
+      #    pin = bytes('ABCDEFGH'[i], 'utf-8')
+      #    arduino.write(pin)
       for i in range(8):
-        if i == lamp_index:
-          pin = bytes('abcdefgh'[i], 'utf-8')
-          arduino.write(pin) 
-        else:
-          pin = bytes('ABCDEFGH'[i], 'utf-8')
-          arduino.write(pin) 
+        for y in range(8):
+          freqs = [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
+          amplitude = get_amplitude(data, freqs[y])
+          if amplitude > 1200000 and i == y: arduino.write(bytes('abcdefgh'[i], 'utf-8'))
+          else: arduino.write(bytes('ABCDEFGH'[i], 'utf-8'))
+
       pin = bytes(b'H')
       arduino.write(pin) 
 
@@ -186,7 +200,7 @@ audio_device_label = ttk.Label(root, text='Input:')
 audio_device_label.grid(row=1, column=0, padx=5, pady=5)
 audio_devices = [d['name'] for d in list_audio_devices()]
 selected_device = tk.StringVar()
-audio_option = ttk.Combobox(root, textvariable=selected_device, values=audio_devices)
+audio_option = ttk.Combobox(root, textvariable=selected_device, values=audio_devices, state='readonly')
 selected_device.set('default')
 audio_option.grid(row=1, column=1, padx=5, pady=5)
 
