@@ -86,14 +86,11 @@ def dominant_frequency(data):
   return dominant_freq
 
 # Function to map frequency to lamp index
-def map_frequency_to_lamp(frequency, num_lamps):
-  min_freq = 500
-  max_freq = 2000
+def map_frequency_to_lamp(frequency, num_lamps, min_freq, max_freq):
   freq_range = max_freq - min_freq
   normalized_freq = (frequency - min_freq) / freq_range
   mapped_index = int(normalized_freq * num_lamps)
   return min(mapped_index, num_lamps - 1)
-
 
 # Light organ logic
 def visled():
@@ -132,10 +129,12 @@ def visled():
     )
 
     status_label['text'] = 'Listening to input stream...'
+    min_freq = int(selected_frequency_min.get())
+    max_freq = int(selected_frequency_max.get())
     while visled_running:
       data = np.frombuffer(stream.read(1024), dtype=np.int16)
       frequency = dominant_frequency(data)
-      lamp_index = map_frequency_to_lamp(frequency, 8)
+      lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
       
       # Light up lamps
       for i in range(8):
@@ -151,8 +150,6 @@ def visled():
   except Exception as e:
     messagebox.showerror('Error', 'Failed reading audio stream!\n' + str(e))
     status_label['text'] = 'Not running'
-    stream.stop_stream()
-    stream.close()
     audio.terminate()
     arduino.close()
 
@@ -170,7 +167,7 @@ def visled():
 
 # Create UI
 root = tk.Tk()
-root.title('Serial Communication App')
+root.title('Arduino Light Organ')
 
 # List serial port
 com_port_label = ttk.Label(root, text='Port:')
@@ -185,22 +182,38 @@ update_button = tk.Button(root, text="  Update ", command=update_ports)
 update_button.grid(row=0, column=2, padx=5, pady=5)
 
 # List audio devices
+audio_device_label = ttk.Label(root, text='Input:')
+audio_device_label.grid(row=1, column=0, padx=5, pady=5)
 audio_devices = [d['name'] for d in list_audio_devices()]
 selected_device = tk.StringVar()
 audio_option = ttk.Combobox(root, textvariable=selected_device, values=audio_devices)
 selected_device.set('default')
 audio_option.grid(row=1, column=1, padx=5, pady=5)
 
-# Start button
+# Frequency
+frequency_range = [
+  '100', '200', '300', '400', '500', '600', '700', '800', '900', '1000',
+  '1100', '1200', '1300', '1500', '1600', '1700', '1800', '1900', '2000'
+]
+frequency_min_label = ttk.Label(root, text='Min:')
+frequency_min_label.grid(row=2, column=0, padx=5, pady=5)
+selected_frequency_min = tk.StringVar()
+frequency_min_option = ttk.Combobox(root, textvariable=selected_frequency_min, values=frequency_range)
+selected_frequency_min.set('500')
+frequency_min_option.grid(row=2, column=1, padx=5, pady=5)
+frequency_max_label = ttk.Label(root, text='Max:')
+frequency_max_label.grid(row=3, column=0, padx=5, pady=5)
+selected_frequency_max = tk.StringVar()
+frequency_max_option = ttk.Combobox(root, textvariable=selected_frequency_max, values=frequency_range)
+selected_frequency_max.set('1000')
+frequency_max_option.grid(row=3, column=1, padx=5, pady=5)
+
+# Start/stop
 start_button = ttk.Button(root, text='Start', command=start)
 start_button.grid(row=9, column=0, padx=5, pady=5)
-
-# Status label
 status_label = ttk.Label(root, text='Port:')
 status_label.grid(row=9, column=1, padx=5, pady=5)
 status_label['text'] = 'Not running'
-
-# Stop button
 stop_button = ttk.Button(root, text='Stop', command=stop)
 stop_button.grid(row=9, column=2, padx=5, pady=5)
 
