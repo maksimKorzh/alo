@@ -15,10 +15,36 @@ import pyaudio
 import numpy as np
 import os, time
 import serial
+import random
 
 # Thread state
 visled_thread = None
 visled_running = False
+
+# Frequencies
+frequency_range = [
+  '100', '200', '300', '400', '500', '600', '700', '800', '900', '1000',
+  '1100', '1200', '1300', '1500', '1600', '1700', '1800', '1900', '2000'
+]
+
+# Thresholds
+amplitudes = [
+  '600000',
+  '800000',
+  '1000000',
+  '1200000',
+  '1400000',
+  '1600000',
+  '1800000',
+  '2000000'
+]
+
+# Play modes
+modes = [
+  'Dominant frequency',
+  'Amplitude threshold',
+  'Random'
+]
 
 ###################################
 #
@@ -43,6 +69,7 @@ def update_ports():
 # Execute visled in background
 def start():
   global visled_thread, visled_running
+  if visled_running: return
   visled_running = True
   visled_thread = threading.Thread(target=visled)
   visled_thread.start()
@@ -135,35 +162,53 @@ def visled():
       frames_per_buffer=1024
     )
 
+    # Fetch user settings
     status_label['text'] = 'Listening to input stream...'
     min_freq = int(selected_frequency_min.get())
     max_freq = int(selected_frequency_max.get())
+    threshold = int(selected_amplitude.get())
+    mode = selected_mode.get()
+    if max_freq <= min_freq: max_freq = min_freq + 2000
+    if selected_inversion.get() == 'True':
+      light_up = 'ABCDEFGH'
+      light_down = 'abcdefgh'
+    else:
+      light_up = 'abcdefgh'
+      light_down = 'ABCDEFGH'
+
+    # Light loop
     while visled_running:
       data = np.frombuffer(stream.read(1024), dtype=np.int16)
       frequency = dominant_frequency(data)
       lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
-      
-      # Light up lamps
-      #for i in range(8):
-      #  if i == lamp_index:
-      #    pin = bytes('abcdefgh'[i], 'utf-8')
-      #    arduino.write(pin) 
-      #  else:
-      #    pin = bytes('ABCDEFGH'[i], 'utf-8')
-      #    arduino.write(pin)
-      for i in range(8):
-        for y in range(8):
-          freqs = [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
-          amplitude = get_amplitude(data, freqs[y])
-          if amplitude > 1200000 and i == y: arduino.write(bytes('abcdefgh'[i], 'utf-8'))
-          else: arduino.write(bytes('ABCDEFGH'[i], 'utf-8'))
 
-      pin = bytes(b'H')
-      arduino.write(pin) 
+      if mode == 'Dominant frequency':
+        for i in range(8):
+          amplitude = get_amplitude(data, min_freq)
+          if amplitude > threshold and i == lamp_index: arduino.write( bytes(light_up[i], 'utf-8')) 
+          else: arduino.write(bytes(light_down[i], 'utf-8'))
+      
+      elif mode == 'Amplitude threshold':
+        for i in range(8):
+          for y in range(8):
+            freqs = list(range(min_freq, max_freq + int(max_freq/min_freq),int ((max_freq - min_freq) / 7)))
+            amplitude = get_amplitude(data, freqs[y])
+            if amplitude > threshold and i == y: arduino.write(bytes(light_up[i], 'utf-8'))
+            else: arduino.write(bytes(light_down[i], 'utf-8'))
+
+      elif mode == 'Random':
+        for i in range(8):
+          amplitude = get_amplitude(data, min_freq)
+          if amplitude > threshold:
+            random_combination = ''.join(random.choice((str.upper, str.lower))(c) for c in light_up[:8])
+            for c in random_combination: arduino.write(bytes(c, 'utf-8'))
+          else:
+            for c in light_down: arduino.write(bytes(c, 'utf-8'))
 
   except Exception as e:
     messagebox.showerror('Error', 'Failed reading audio stream!\n' + str(e))
     status_label['text'] = 'Not running'
+    visled_running = False
     audio.terminate()
     arduino.close()
 
@@ -184,7 +229,7 @@ root = tk.Tk()
 root.title('Arduino Light Organ')
 
 # List serial port
-com_port_label = ttk.Label(root, text='Port:')
+com_port_label = ttk.Label(root, text='    Port:')
 com_port_label.grid(row=0, column=0, padx=5, pady=5)
 selected_port = tk.StringVar()
 com_ports = get_available_ports()
@@ -192,11 +237,11 @@ com_ports = com_ports if len(com_ports) else ['No device found']
 com_port_option = ttk.Combobox(root, textvariable=selected_port, values=get_available_ports())
 com_port_option.grid(row=0, column=1, padx=5, pady=5)
 selected_port.set(com_ports[0])
-update_button = tk.Button(root, text="  Update ", command=update_ports)
+update_button = tk.Button(root, text="    Update ", command=update_ports)
 update_button.grid(row=0, column=2, padx=5, pady=5)
 
 # List audio devices
-audio_device_label = ttk.Label(root, text='Input:')
+audio_device_label = ttk.Label(root, text='   Input:')
 audio_device_label.grid(row=1, column=0, padx=5, pady=5)
 audio_devices = [d['name'] for d in list_audio_devices()]
 selected_device = tk.StringVar()
@@ -205,31 +250,51 @@ selected_device.set('default')
 audio_option.grid(row=1, column=1, padx=5, pady=5)
 
 # Frequency
-frequency_range = [
-  '100', '200', '300', '400', '500', '600', '700', '800', '900', '1000',
-  '1100', '1200', '1300', '1500', '1600', '1700', '1800', '1900', '2000'
-]
-frequency_min_label = ttk.Label(root, text='Min:')
+frequency_min_label = ttk.Label(root, text='      Min:')
 frequency_min_label.grid(row=2, column=0, padx=5, pady=5)
 selected_frequency_min = tk.StringVar()
-frequency_min_option = ttk.Combobox(root, textvariable=selected_frequency_min, values=frequency_range)
 selected_frequency_min.set('500')
-frequency_min_option.grid(row=2, column=1, padx=5, pady=5)
-frequency_max_label = ttk.Label(root, text='Max:')
-frequency_max_label.grid(row=3, column=0, padx=5, pady=5)
+frequency_min_option = ttk.Combobox(root, textvariable=selected_frequency_min, values=frequency_range)
+frequency_min_option.grid(row=2, column=1)
+frequency_max_label = ttk.Label(root, text='      Max:')
+frequency_max_label.grid(row=3, column=0)
 selected_frequency_max = tk.StringVar()
+selected_frequency_max.set('2000')
 frequency_max_option = ttk.Combobox(root, textvariable=selected_frequency_max, values=frequency_range)
-selected_frequency_max.set('1000')
 frequency_max_option.grid(row=3, column=1, padx=5, pady=5)
+
+# Amplitude
+amplitude_label = ttk.Label(root, text='Sensivity:')
+amplitude_label.grid(row=4, column=0, padx=5, pady=5)
+selected_amplitude = tk.StringVar()
+selected_amplitude.set('1400000')
+amplitude_option = ttk.Combobox(root, textvariable=selected_amplitude, values=amplitudes)
+amplitude_option.grid(row=4, column=1, padx=5, pady=5)
+
+# Inversion
+inversion_label = ttk.Label(root, text='Inversion:')
+inversion_label.grid(row=5, column=0, padx=5, pady=5)
+selected_inversion = tk.StringVar()
+selected_inversion.set('False')
+inversion_option = ttk.Combobox(root, textvariable=selected_inversion, values=['True', 'False'], state='readonly')
+inversion_option.grid(row=5, column=1, padx=5, pady=5)
+
+# Mode
+mode_label = ttk.Label(root, text='     Mode:')
+mode_label.grid(row=6, column=0, padx=5, pady=5)
+selected_mode = tk.StringVar()
+selected_mode.set('Dominant frequency')
+mode_option = ttk.Combobox(root, textvariable=selected_mode, values=modes, state='readonly')
+mode_option.grid(row=6, column=1, padx=5, pady=5)
 
 # Start/stop
 start_button = ttk.Button(root, text='Start', command=start)
-start_button.grid(row=9, column=0, padx=5, pady=5)
+start_button.grid(row=7, column=0, padx=5, pady=5)
 status_label = ttk.Label(root, text='Port:')
-status_label.grid(row=9, column=1, padx=5, pady=5)
+status_label.grid(row=7, column=1, padx=5, pady=5)
 status_label['text'] = 'Not running'
 stop_button = ttk.Button(root, text='Stop', command=stop)
-stop_button.grid(row=9, column=2, padx=5, pady=5)
+stop_button.grid(row=7, column=2, padx=5, pady=5)
 
 # Run app
 root.mainloop()
