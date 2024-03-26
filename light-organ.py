@@ -29,6 +29,11 @@ frequency_range = [
 
 # Thresholds
 amplitudes = [
+  '100000',
+  '200000',
+  '300000',
+  '400000',
+  '500000',
   '600000',
   '800000',
   '1000000',
@@ -137,6 +142,7 @@ def visled():
   except:
     messagebox.showerror('Error', 'Port ' + selected_port.get() + ' does not exist!')
     status_label['text'] = 'Not running'
+    visled_running = False
     return
   try:
     device = [d for d in list_audio_devices() if d['name'] == selected_device.get()][0]
@@ -179,13 +185,13 @@ def visled():
     # Light loop
     while visled_running:
       data = np.frombuffer(stream.read(1024), dtype=np.int16)
-      frequency = dominant_frequency(data)
-      lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
 
       if mode == 'Dominant frequency':
+        frequency = dominant_frequency(data)
+        lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
         for i in range(8):
           amplitude = get_amplitude(data, min_freq)
-          if amplitude > threshold and i == lamp_index: arduino.write( bytes(light_up[i], 'utf-8')) 
+          if amplitude > threshold and i == abs(lamp_index): arduino.write( bytes(light_up[i], 'utf-8')) 
           else: arduino.write(bytes(light_down[i], 'utf-8'))
       
       elif mode == 'Amplitude threshold':
@@ -267,7 +273,7 @@ frequency_max_option.grid(row=3, column=1, padx=5, pady=5)
 amplitude_label = ttk.Label(root, text='Sensivity:')
 amplitude_label.grid(row=4, column=0, padx=5, pady=5)
 selected_amplitude = tk.StringVar()
-selected_amplitude.set('1400000')
+selected_amplitude.set('1000000')
 amplitude_option = ttk.Combobox(root, textvariable=selected_amplitude, values=amplitudes)
 amplitude_option.grid(row=4, column=1, padx=5, pady=5)
 
