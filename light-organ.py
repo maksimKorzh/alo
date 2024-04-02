@@ -16,6 +16,7 @@ import numpy as np
 import os, time
 import serial
 import random
+import time
 
 # Thread state
 visled_thread = None
@@ -29,6 +30,10 @@ frequency_range = [
 
 # Thresholds
 amplitudes = [
+  '100',
+  '500',
+  '1000',
+  '10000',
   '100000',
   '200000',
   '300000',
@@ -50,6 +55,9 @@ modes = [
   'Amplitude threshold',
   'Random'
 ]
+
+# Light delay
+pause = 0.05
 
 ###################################
 #
@@ -174,13 +182,15 @@ def visled():
     max_freq = int(selected_frequency_max.get())
     threshold = int(selected_amplitude.get())
     mode = selected_mode.get()
+
+    # Handle inversion
     if max_freq <= min_freq: max_freq = min_freq + 2000
     if selected_inversion.get() == 'True':
-      light_up = 'ABCDEFGH'
-      light_down = 'abcdefgh'
-    else:
       light_up = 'abcdefgh'
       light_down = 'ABCDEFGH'
+    else:
+      light_up = 'ABCDEFGH'
+      light_down = 'abcdefgh'
 
     # Light loop
     while visled_running:
@@ -195,12 +205,18 @@ def visled():
           else: arduino.write(bytes(light_down[i], 'utf-8'))
       
       elif mode == 'Amplitude threshold':
+        amplitudes = []
         for i in range(8):
-          for y in range(8):
-            freqs = list(range(min_freq, max_freq + int(max_freq/min_freq),int ((max_freq - min_freq) / 7)))
-            amplitude = get_amplitude(data, freqs[y])
-            if amplitude > threshold and i == y: arduino.write(bytes(light_up[i], 'utf-8'))
-            else: arduino.write(bytes(light_down[i], 'utf-8'))
+          freqs = list(range(min_freq, max_freq + int(max_freq/min_freq),int ((max_freq - min_freq) / 7)))
+          amplitudes.append(get_amplitude(data, freqs[i]))
+        
+        for i in range(8):
+          if amplitudes[i] > threshold:
+            arduino.write(bytes(light_up[i], 'utf-8'))
+        
+        time.sleep(pause)
+        for i in range(8):
+          arduino.write(bytes(light_down[i], 'utf-8'))
 
       elif mode == 'Random':
         for i in range(8):
@@ -208,8 +224,8 @@ def visled():
           if amplitude > threshold:
             random_combination = ''.join(random.choice((str.upper, str.lower))(c) for c in light_up[:8])
             for c in random_combination: arduino.write(bytes(c, 'utf-8'))
-          else:
-            for c in light_down: arduino.write(bytes(c, 'utf-8'))
+        for i in range(8):
+          for c in light_down: arduino.write(bytes(c, 'utf-8'))
 
   except Exception as e:
     messagebox.showerror('Error', 'Failed reading audio stream!\n' + str(e))
@@ -252,28 +268,28 @@ audio_device_label.grid(row=1, column=0, padx=5, pady=5)
 audio_devices = [d['name'] for d in list_audio_devices()]
 selected_device = tk.StringVar()
 audio_option = ttk.Combobox(root, textvariable=selected_device, values=audio_devices, state='readonly')
-selected_device.set('default')
+selected_device.set('Microsoft Sound Mapper - Input')
 audio_option.grid(row=1, column=1, padx=5, pady=5)
 
 # Frequency
 frequency_min_label = ttk.Label(root, text='      Min:')
 frequency_min_label.grid(row=2, column=0, padx=5, pady=5)
 selected_frequency_min = tk.StringVar()
-selected_frequency_min.set('500')
+selected_frequency_min.set('200')
 frequency_min_option = ttk.Combobox(root, textvariable=selected_frequency_min, values=frequency_range)
 frequency_min_option.grid(row=2, column=1)
 frequency_max_label = ttk.Label(root, text='      Max:')
 frequency_max_label.grid(row=3, column=0)
 selected_frequency_max = tk.StringVar()
-selected_frequency_max.set('2000')
+selected_frequency_max.set('600')
 frequency_max_option = ttk.Combobox(root, textvariable=selected_frequency_max, values=frequency_range)
 frequency_max_option.grid(row=3, column=1, padx=5, pady=5)
 
 # Amplitude
-amplitude_label = ttk.Label(root, text='Sensivity:')
+amplitude_label = ttk.Label(root, text='Threshold:')
 amplitude_label.grid(row=4, column=0, padx=5, pady=5)
 selected_amplitude = tk.StringVar()
-selected_amplitude.set('1000000')
+selected_amplitude.set('500')
 amplitude_option = ttk.Combobox(root, textvariable=selected_amplitude, values=amplitudes)
 amplitude_option.grid(row=4, column=1, padx=5, pady=5)
 
@@ -281,7 +297,7 @@ amplitude_option.grid(row=4, column=1, padx=5, pady=5)
 inversion_label = ttk.Label(root, text='Inversion:')
 inversion_label.grid(row=5, column=0, padx=5, pady=5)
 selected_inversion = tk.StringVar()
-selected_inversion.set('False')
+selected_inversion.set('True')
 inversion_option = ttk.Combobox(root, textvariable=selected_inversion, values=['True', 'False'], state='readonly')
 inversion_option.grid(row=5, column=1, padx=5, pady=5)
 
