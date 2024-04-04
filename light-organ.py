@@ -6,17 +6,12 @@
 
 # Packages
 import serial.tools.list_ports
+import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
-import serial
-import threading
-import pyaudio
-import numpy as np
-import os, time
-import serial
-import random
-import time
+import serial, threading, pyaudio
+import os, time, random, json
 
 # Thread state
 visled_thread = None
@@ -51,9 +46,8 @@ amplitudes = [
 
 # Play modes
 modes = [
-  'Dominant frequency',
-  'Amplitude threshold',
-  'Random'
+  'True',
+  'False',
 ]
 
 # Delays
@@ -75,6 +69,35 @@ delays = [
 def on_window_close():
   stop()
   root.destroy()
+
+# Load user settings
+def load_settings():
+  try:
+    with open('settings.json') as f:
+      settings = json.loads(f.read())
+      selected_port.set(settings['port'])
+      selected_device.set(settings['device'])
+      selected_frequency_min.set(settings['min'])
+      selected_frequency_max.set(settings['max'])
+      selected_amplitude.set(settings['threshold'])
+      selected_delay.set(settings['delay'])
+      selected_mode.set(settings['idle'])
+      selected_inversion.set(settings['inversion'])
+  except: pass
+
+# Load user settings
+def save_settings():
+  with open('settings.json', 'w') as f:
+    settings = {}
+    settings['port'] = selected_port.get()
+    settings['device'] = selected_device.get()
+    settings['min'] = selected_frequency_min.get()
+    settings['max'] = selected_frequency_max.get()
+    settings['threshold'] = selected_amplitude.get()
+    settings['delay'] = selected_delay.get()
+    settings['idle'] = selected_mode.get()
+    settings['inversion'] = selected_inversion.get()
+    f.write(json.dumps(settings, indent=2))
 
 # List COM ports
 def get_available_ports():
@@ -202,7 +225,7 @@ def visled():
     max_freq = int(selected_frequency_max.get())
     threshold = int(selected_amplitude.get())
     pause = float(selected_delay.get())
-    mode = selected_mode.get()
+    idle_mode = selected_mode.get()
 
     # Handle inversion
     if max_freq <= min_freq: max_freq = min_freq + 2000
@@ -219,46 +242,29 @@ def visled():
       amplitudes = get_amplitudes(stream, min_freq, max_freq)
       
       # Process idling
-      if amplitudes[0] < 1000:
-        status_state['text'] = 'Idling...'
-        for i in range(8):
-          arduino.write(bytes(light_up[i], 'utf-8'))
-          time.sleep(pause)
-          if get_amplitudes(stream, min_freq, max_freq)[0] > threshold: break
-          arduino.write(bytes(light_down[i], 'utf-8'))
-
-      else:
-        status_state['text'] = 'Playing...'
+      if idle_mode == 'True':
+        if amplitudes[0] < 1000:
+          status_state['text'] = 'Idling...'
+          for i in range(7):
+            arduino.write(bytes(light_up[i], 'utf-8'))
+            time.sleep(0.15)
+            if get_amplitudes(stream, min_freq, max_freq)[0] > threshold: break
+            arduino.write(bytes(light_down[i], 'utf-8'))
+          for i in range(7):
+            arduino.write(bytes(light_up[7-i], 'utf-8'))
+            time.sleep(0.15)
+            if get_amplitudes(stream, min_freq, max_freq)[0] > threshold: break
+            arduino.write(bytes(light_down[7-i], 'utf-8'))
+        else: status_state['text'] = 'Playing...'
 
       # Process sound
-      if mode == 'Dominant frequency':
-        frequency = dominant_frequency(data)
-        lamp_index = map_frequency_to_lamp(frequency, 8, min_freq, max_freq)
-        for i in range(8):
-          amplitude = get_amplitude(data, min_freq)
-          if amplitude > threshold and i == abs(lamp_index):
-            arduino.write( bytes(light_up[i], 'utf-8')) 
-            time.sleep(pause)
-          else: arduino.write(bytes(light_down[i], 'utf-8'))
+      for i in range(8):
+        if amplitudes[i] > threshold:
+          arduino.write(bytes(light_up[i], 'utf-8'))
       
-      elif mode == 'Amplitude threshold':
-        for i in range(8):
-          if amplitudes[i] > threshold:
-            arduino.write(bytes(light_up[i], 'utf-8'))
-        
-        time.sleep(pause)
-        for i in range(8):
-          arduino.write(bytes(light_down[i], 'utf-8'))
-
-      elif mode == 'Random':
-        for i in range(8):
-          amplitude = get_amplitude(data, min_freq)
-          if amplitude > threshold:
-            random_combination = ''.join(random.choice((str.upper, str.lower))(c) for c in light_up[:8])
-            for c in random_combination: arduino.write(bytes(c, 'utf-8'))
-        time.sleep(pause)
-        for i in range(8):
-          for c in light_down: arduino.write(bytes(c, 'utf-8'))
+      time.sleep(pause)
+      for i in range(8):
+        arduino.write(bytes(light_down[i], 'utf-8'))
 
   except Exception as e:
     messagebox.showerror('Error', 'Failed reading audio stream!\n' + str(e))
@@ -332,21 +338,21 @@ selected_delay.set('0.05')
 delay_option = ttk.Combobox(root, textvariable=selected_delay, values=delays)
 delay_option.grid(row=6, column=1, padx=5, pady=5)
 
+# Idle mode
+mode_label = ttk.Label(root, text='      Idle:')
+mode_label.grid(row=7, column=0, padx=5, pady=5)
+selected_mode = tk.StringVar()
+selected_mode.set('True')
+mode_option = ttk.Combobox(root, textvariable=selected_mode, values=modes, state='readonly')
+mode_option.grid(row=7, column=1, padx=5, pady=5)
+
 # Inversion
 inversion_label = ttk.Label(root, text='Inversion:')
-inversion_label.grid(row=7, column=0, padx=5, pady=5)
+inversion_label.grid(row=8, column=0, padx=5, pady=5)
 selected_inversion = tk.StringVar()
 selected_inversion.set('True')
 inversion_option = ttk.Combobox(root, textvariable=selected_inversion, values=['True', 'False'], state='readonly')
-inversion_option.grid(row=7, column=1, padx=5, pady=5)
-
-# Mode
-mode_label = ttk.Label(root, text='      Mode:')
-mode_label.grid(row=8, column=0, padx=5, pady=5)
-selected_mode = tk.StringVar()
-selected_mode.set('Amplitude threshold')
-mode_option = ttk.Combobox(root, textvariable=selected_mode, values=modes, state='readonly')
-mode_option.grid(row=8, column=1, padx=5, pady=5)
+inversion_option.grid(row=8, column=1, padx=5, pady=5)
 
 # Sync
 sync_button = ttk.Button(root, text='Sync', command=sync)
@@ -358,5 +364,11 @@ time.sleep(0.5)
 # On app close
 root.protocol("WM_DELETE_WINDOW", on_window_close)
 
+# Load last changes
+load_settings()
+
 # Run app
 root.mainloop()
+
+# Save last changes
+save_settings()
