@@ -1,1 +1,1 @@
-pyinstaller --hide-console hide-early light-organ.py
+pyinstaller --onefile --hide-console hide-early light-organ.py
