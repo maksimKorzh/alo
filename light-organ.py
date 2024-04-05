@@ -17,6 +17,11 @@ import os, time, random, json
 visled_thread = None
 visled_running = False
 
+# Channels
+channels = [
+  '1', '2', '3', '4', '5', '6'
+]
+
 # Frequencies
 frequency_range = [
   '100', '200', '300', '400', '500', '600', '700', '800', '900', '1000',
@@ -139,7 +144,8 @@ def list_audio_devices():
       device_info = p.get_device_info_by_index(index)
       devices.append({
         'index': device_info['index'],
-        'name': device_info['name']
+        'name': device_info['name'],
+        'channels': device_info['maxInputChannels']
       })
 
   p.terminate()
@@ -208,17 +214,6 @@ def visled():
   
   # Listen to audio stream
   try:
-    # Initialize audio stream
-    audio = pyaudio.PyAudio()
-    stream = audio.open(
-      format=pyaudio.paInt16,
-      channels=2,
-      rate=48000,
-      input=True,
-      input_device_index=device['index'],
-      frames_per_buffer=1024
-    )
-
     # Fetch user settings
     status_state['text'] = 'Synced, no sound'
     min_freq = int(selected_frequency_min.get())
@@ -226,6 +221,17 @@ def visled():
     threshold = int(selected_amplitude.get())
     pause = float(selected_delay.get())
     idle_mode = selected_mode.get()
+
+    # Initialize audio stream
+    audio = pyaudio.PyAudio()
+    stream = audio.open(
+      format=pyaudio.paInt16,
+      channels=device['channels'],
+      rate=48000,
+      input=True,
+      input_device_index=device['index'],
+      frames_per_buffer=1024
+    )
 
     # Handle inversion
     if max_freq <= min_freq: max_freq = min_freq + 2000
@@ -290,7 +296,7 @@ root = tk.Tk()
 root.title('Light Organ')
 
 # List serial port
-com_port_label = ttk.Label(root, text='     Port:')
+com_port_label = ttk.Label(root, text='         Port:')
 com_port_label.grid(row=1, column=0, padx=5, pady=5)
 selected_port = tk.StringVar()
 com_ports = get_available_ports()
@@ -300,7 +306,7 @@ com_port_option.grid(row=1, column=1, padx=5, pady=5)
 selected_port.set(com_ports[0])
 
 # List audio devices
-audio_device_label = ttk.Label(root, text='    Input:')
+audio_device_label = ttk.Label(root, text='       Input:')
 audio_device_label.grid(row=2, column=0, padx=5, pady=5)
 audio_devices = [d['name'] for d in list_audio_devices()]
 selected_device = tk.StringVar()
@@ -309,50 +315,50 @@ selected_device.set('Microsoft Sound Mapper - Input')
 audio_option.grid(row=2, column=1, padx=5, pady=5)
 
 # Frequency
-frequency_min_label = ttk.Label(root, text='       Min:')
-frequency_min_label.grid(row=3, column=0, padx=5, pady=5)
+frequency_min_label = ttk.Label(root, text='         Min:')
+frequency_min_label.grid(row=4, column=0, padx=5, pady=5)
 selected_frequency_min = tk.StringVar()
 selected_frequency_min.set('200')
 frequency_min_option = ttk.Combobox(root, textvariable=selected_frequency_min, values=frequency_range)
-frequency_min_option.grid(row=3, column=1, padx=5, pady=5)
-frequency_max_label = ttk.Label(root, text='       Max:')
-frequency_max_label.grid(row=4, column=0, padx=5, pady=5)
+frequency_min_option.grid(row=4, column=1, padx=5, pady=5)
+frequency_max_label = ttk.Label(root, text='         Max:')
+frequency_max_label.grid(row=5, column=0, padx=5, pady=5)
 selected_frequency_max = tk.StringVar()
 selected_frequency_max.set('600')
 frequency_max_option = ttk.Combobox(root, textvariable=selected_frequency_max, values=frequency_range)
-frequency_max_option.grid(row=4, column=1, padx=5, pady=5)
+frequency_max_option.grid(row=5, column=1, padx=5, pady=5)
 
 # Amplitude
 amplitude_label = ttk.Label(root, text='Threshold:')
-amplitude_label.grid(row=5, column=0, padx=5, pady=5)
+amplitude_label.grid(row=6, column=0, padx=5, pady=5)
 selected_amplitude = tk.StringVar()
 selected_amplitude.set('200000')
 amplitude_option = ttk.Combobox(root, textvariable=selected_amplitude, values=amplitudes)
-amplitude_option.grid(row=5, column=1, padx=5, pady=5)
+amplitude_option.grid(row=6, column=1, padx=5, pady=5)
 
 # Delay
-delay_label = ttk.Label(root, text='      Delay:')
-delay_label.grid(row=6, column=0, padx=5, pady=5)
+delay_label = ttk.Label(root, text='        Delay:')
+delay_label.grid(row=7, column=0, padx=5, pady=5)
 selected_delay = tk.StringVar()
 selected_delay.set('0.05')
 delay_option = ttk.Combobox(root, textvariable=selected_delay, values=delays)
-delay_option.grid(row=6, column=1, padx=5, pady=5)
+delay_option.grid(row=7, column=1, padx=5, pady=5)
 
 # Idle mode
-mode_label = ttk.Label(root, text='      Idle:')
-mode_label.grid(row=7, column=0, padx=5, pady=5)
+mode_label = ttk.Label(root, text='           Idle:')
+mode_label.grid(row=8, column=0, padx=5, pady=5)
 selected_mode = tk.StringVar()
 selected_mode.set('True')
 mode_option = ttk.Combobox(root, textvariable=selected_mode, values=modes, state='readonly')
-mode_option.grid(row=7, column=1, padx=5, pady=5)
+mode_option.grid(row=8, column=1, padx=5, pady=5)
 
 # Inversion
-inversion_label = ttk.Label(root, text='Inversion:')
-inversion_label.grid(row=8, column=0, padx=5, pady=5)
+inversion_label = ttk.Label(root, text='  Inversion:')
+inversion_label.grid(row=9, column=0, padx=5, pady=5)
 selected_inversion = tk.StringVar()
 selected_inversion.set('True')
 inversion_option = ttk.Combobox(root, textvariable=selected_inversion, values=['True', 'False'], state='readonly')
-inversion_option.grid(row=8, column=1, padx=5, pady=5)
+inversion_option.grid(row=9, column=1, padx=5, pady=5)
 
 # Sync
 sync_button = ttk.Button(root, text='Sync', command=sync)
@@ -366,6 +372,11 @@ root.protocol("WM_DELETE_WINDOW", on_window_close)
 
 # Load last changes
 load_settings()
+# Set window size
+#root.geometry("400x300")
+
+# Make window not resizable
+root.resizable(False, False)
 
 # Run app
 root.mainloop()
